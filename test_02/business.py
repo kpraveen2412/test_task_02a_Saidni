@@ -1,6 +1,8 @@
+
 from bson import ObjectId
 from app import mongo
 from app import RESOLVED_PERMISSIONS
+from copy import deepcopy
 
 
 def get_unpaginated_client_users(departament_id):
@@ -64,19 +66,23 @@ def dereference_client_users_allowed_actions_for_client(client_users_list):
 
     # Go over client_users list and put whole dereferenced permissions, routes, routines structure under allowed actions
 
-    dereferenced_permissions = dict()
-    role_permission = list()
+    #dereferenced_permissions = dict()
+    #role_permission = list()
+    #allowed_actions=[]
     for cu in client_users_list:
-        allowed_actions = list()
+        allowed_actions = []
+        dereferenced_permissions = {}
+        role_permission = []
         au = cu_api_user_map.get(cu['_id'])
         if not au:
             cu['error'] = "No API_User wrapper found, can't resolve allowed_actions"
             cu['allowed_actions'] = list()
             continue
         permissions = au.get('permissions', list())
-        if "user_role" in au:
+
+        if au.get("user_role"):
             roles = mongo.roles.find({'_id': {'$in': au['user_role']}, 'enabled': True})
-            for r in roles:
+            for r in list(roles):
                 permissions += r.get('permission', list())
                 role_permission += r.get('permission', list())
 
@@ -84,13 +90,19 @@ def dereference_client_users_allowed_actions_for_client(client_users_list):
             if pid in dereferenced_permissions:
                 allowed_actions.append(dereferenced_permissions[pid])
                 continue
-            p = permission_id_permission_map.get(pid)
+            
+            permission_copy = {}
+            permission_copy = deepcopy(permission_id_permission_map)
+            #for key in permission_id_permission_map:
+            #    perm[key]=permission_id_permission_map[key]
+            p = permission_copy.get(pid)
+            #p = permission_id_permission_map.get(pid)
             if not p:
                 # Broken reference to permission object. Put an empty object there
                 p = {'_id': pid, 'routes': [], 'routines': [], 'error': 'Invalid reference', 'ui_aliases': []}
                 allowed_actions.append(p)
                 continue
-            allowed_actions.append(p)
+            #allowed_actions.append(p)
             # Exctract ui_aliases (if any) from routes and propagate them up to permission level
             p['ui_aliases'] = set()
             deref_routes = list()
@@ -99,16 +111,16 @@ def dereference_client_users_allowed_actions_for_client(client_users_list):
                 deref_routes.append(route)
                 if 'ui_aliases' in route:
                     p['ui_aliases'].update(route['ui_aliases'])
-
+            
             p['role_based'] = False
             if pid in role_permission:
                 p['role_based'] = True
-
             p['routes'] = deref_routes
             p['routines'] = []
             p['ui_aliases'] = list(p['ui_aliases'])
             dereferenced_permissions[pid] = p
-
+            allowed_actions.append(p)
+        
         allowed_actions.sort(key=lambda p: p.get('name', 'z'))
         cu['allowed_actions'] = allowed_actions
 
